@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <vector>
 #include <algorithm>
+#include <sstream>
 
 #include <unistd.h> // for fork(), exec(), and dup2()
 #include <sys/wait.h>   // for waitpid()
@@ -9,38 +10,87 @@
 
 namespace fs = std::filesystem;
 
-bool executeProgram(const std::string& command) {
+bool executeProgram(const std::string& input) {
 
-    // If the input is not one of the shell's built in commands,
-    // assume the user is trying to execute a program.
+    // Use a string stream to separate the user input
+    // into individual space separated words.
     //
+    // Example:
+    // "/bin/ls -a -l"
+    //
+    // becomes:
+    // "/bin/ls"
+    // "-a"
+    // "-l"
+    std::istringstream stream(input);
+
+    std::string programPath;
+
+    // Stores command line arguments like:
+    // "-a", "-l", etc.
+    std::vector<std::string> programArguments;
+
+    std::string argument;
+
+    // The first word in the stream is always the program path.
+    stream >> programPath;
+
+    // Continue reading arguments until the stream is empty.
+    while (!stream.eof()) {
+
+        stream >> argument;
+
+        // The final read may produce an empty string.
+        // Do not keep empty arguments.
+        if (!argument.empty()) {
+            programArguments.push_back(argument);
+        }
+
+        argument.clear();
+    }
+
+    // execv is a C function.
+    // It expects arguments as a dynamic array of char pointers.
+    //
+    // +2 because:
+    // cargs[0] = program path
+    // last index = nullptr
+    char** cargs {new char*[programArguments.size() + 2]};
+
+    // The first argument must always be the program itself.
+    //
+    // Example:
+    // "/bin/ls"
+    cargs[0] = programPath.data();
+
+    // Fill the remaining array with pointers
+    // to each argument string.
+    //
+    // Example:
+    // "-a"
+    // "-l"
+    for (size_t i = 0; i < programArguments.size(); ++i) {
+
+        cargs[i + 1] = programArguments[i].data();
+    }
+
+    // execv argument arrays must always end with nullptr.
+    cargs[programArguments.size() + 1] = nullptr;
+
     // fork() creates a second process.
-    //
-    // pid == 0:
-    // We are inside the child process.
-    // The child process will be replaced by the requested program using execl().
-    //
-    // pid > 0:
-    // We are inside the parent process.
-    // The value of pid is the process ID of the child.
-    // The parent keeps the shell running and waits for the child to finish.
-    //
-    // pid < 0:
-    // fork() failed and no child process was created.
-    //
-    // Without fork(), execl() would permanently replace the shell itself.
-
     pid_t pid = fork();
 
+    // pid == 0 means we are inside the child process.
     if (pid == 0) {
 
-        // execl replaces the current child process with the new program.
-        // If execl succeeds, the remaining code in this block never runs.
-        // execl only returns if an error occurs.
-
-        if (execl(command.c_str(),
-                  command.c_str(),
-                  static_cast<char*>(nullptr)) == -1) {
+        // execv replaces the child process with the requested program.
+        //
+        // Parameter 1:
+        // path to the program
+        //
+        // Parameter 2:
+        // array of argument character pointers
+        if (execv(programPath.c_str(), cargs) == -1) {
 
             std::cout << "There was an error when trying to exec"
                       << std::endl;
@@ -48,24 +98,31 @@ bool executeProgram(const std::string& command) {
             std::cout << "Program could not be found."
                       << std::endl;
 
-            exit(1);
             // exit(1) immediately terminates the child process
-            // and returns a nonzero status code to the parent process.
+            // and returns a nonzero status code to the parent.
+            exit(1);
         }
     }
+
+    // pid > 0 means we are inside the parent process.
     else if (pid > 0) {
 
         int status;
 
-        // waitpid pauses the parent process until the child process finishes.
+        // waitpid pauses the parent process
+        // until the child process finishes.
         waitpid(pid, &status, 0);
 
-        // WIFEXITED checks whether the child process ended normally.
-        // If true, WEXITSTATUS extracts the program's exit code.
+        // The parent no longer needs the dynamic array.
+        delete[] cargs;
+
+        // WIFEXITED checks whether the child ended normally.
+        // WEXITSTATUS extracts the child's exit code.
         if (WIFEXITED(status)) {
 
             int code = WEXITSTATUS(status);
 
+            // Nonzero status codes usually indicate failure.
             if (code != 0) {
 
                 std::cout << "Program exited with status code "
@@ -77,9 +134,14 @@ bool executeProgram(const std::string& command) {
             return true;
         }
     }
+
+    // pid < 0 means fork() failed.
     else {
 
         std::cout << "Fork failed." << std::endl;
+
+        delete[] cargs;
+
         return false;
     }
 
@@ -190,7 +252,7 @@ int main() {
         }
 
         else {
-            if (executeProgram(command)) {
+            if (executeProgram(input)) {
                 history.push_back(std::move(input));
             }
         }
