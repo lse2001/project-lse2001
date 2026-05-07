@@ -10,7 +10,45 @@
 
 namespace fs = std::filesystem;
 
+void redirectStandardOutput(const std::string& outputFile) {
+
+    // Open the output file for writing.
+    //
+    // O_WRONLY:
+    // open for writing only
+    //
+    // O_CREAT:
+    // create the file if it does not exist
+    //
+    // O_TRUNC:
+    // clear the file contents if it already exists
+    int fd = open(outputFile.c_str(),
+                  O_WRONLY | O_CREAT | O_TRUNC,
+                  0644);
+
+    // open returns a negative value if the file could not be opened.
+    if (fd < 0) {
+
+        std::cout << "Could not open output file."
+                  << std::endl;
+
+        exit(1);
+    }
+
+    // dup2 redirects standard output and standard error
+    // so anything printed by the child program
+    // goes into the output file instead of the terminal.
+    dup2(fd, STDOUT_FILENO);
+    dup2(fd, STDERR_FILENO);
+
+    // The file descriptor is no longer needed after dup2.
+    close(fd);
+}
+
 bool executeProgram(const std::string& input) {
+
+    bool redirectOutput{false};
+    std::string outputFile;
 
     // Use a string stream to separate the user input
     // into individual space separated words.
@@ -40,11 +78,23 @@ bool executeProgram(const std::string& input) {
 
         stream >> argument;
 
-        // The final read may produce an empty string.
-        // Do not keep empty arguments.
-        if (!argument.empty()) {
-            programArguments.push_back(argument);
+        // Skip empty reads.
+        if (argument.empty()) {
+            continue;
         }
+
+        // If we encounter ">", the next value is the output file.
+        if (argument == ">") {
+
+            redirectOutput = true;
+
+            stream >> outputFile;
+
+            break;
+        }
+
+        // Otherwise this is a normal command line argument.
+        programArguments.push_back(argument);
 
         argument.clear();
     }
@@ -82,6 +132,12 @@ bool executeProgram(const std::string& input) {
 
     // pid == 0 means we are inside the child process.
     if (pid == 0) {
+
+        // If the user requested output redirection,
+        // redirect stdout and stderr to the output file.
+        if (redirectOutput) {
+            redirectStandardOutput(outputFile);
+        }
 
         // execv replaces the child process with the requested program.
         //
