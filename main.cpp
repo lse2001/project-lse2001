@@ -1,12 +1,90 @@
 #include <iostream>
 #include <filesystem>
 #include <vector>
+#include <algorithm>
 
 #include <unistd.h> // for fork(), exec(), and dup2()
 #include <sys/wait.h>   // for waitpid()
 #include <fcntl.h>  // for open()
 
 namespace fs = std::filesystem;
+
+bool executeProgram(const std::string& command) {
+
+    // If the input is not one of the shell's built in commands,
+    // assume the user is trying to execute a program.
+    //
+    // fork() creates a second process.
+    //
+    // pid == 0:
+    // We are inside the child process.
+    // The child process will be replaced by the requested program using execl().
+    //
+    // pid > 0:
+    // We are inside the parent process.
+    // The value of pid is the process ID of the child.
+    // The parent keeps the shell running and waits for the child to finish.
+    //
+    // pid < 0:
+    // fork() failed and no child process was created.
+    //
+    // Without fork(), execl() would permanently replace the shell itself.
+
+    pid_t pid = fork();
+
+    if (pid == 0) {
+
+        // execl replaces the current child process with the new program.
+        // If execl succeeds, the remaining code in this block never runs.
+        // execl only returns if an error occurs.
+
+        if (execl(command.c_str(),
+                  command.c_str(),
+                  static_cast<char*>(nullptr)) == -1) {
+
+            std::cout << "There was an error when trying to exec"
+                      << std::endl;
+
+            std::cout << "Program could not be found."
+                      << std::endl;
+
+            exit(1);
+            // exit(1) immediately terminates the child process
+            // and returns a nonzero status code to the parent process.
+        }
+    }
+    else if (pid > 0) {
+
+        int status;
+
+        // waitpid pauses the parent process until the child process finishes.
+        waitpid(pid, &status, 0);
+
+        // WIFEXITED checks whether the child process ended normally.
+        // If true, WEXITSTATUS extracts the program's exit code.
+        if (WIFEXITED(status)) {
+
+            int code = WEXITSTATUS(status);
+
+            if (code != 0) {
+
+                std::cout << "Program exited with status code "
+                          << code << std::endl;
+
+                return false;
+            }
+
+            return true;
+        }
+    }
+    else {
+
+        std::cout << "Fork failed." << std::endl;
+        return false;
+    }
+
+    return false;
+}
 
 int main() {
     fs::path workingDir{"/"};
@@ -108,13 +186,13 @@ int main() {
         }
 
         else {
-            std::cout << "Unknown command." << std::endl;
+            if (executeProgram(command)) {
+                history.push_back(std::move(input));
+            }
         }
 
         std::cout << std::endl;
     }
-
-
 
     return 0;
 }
