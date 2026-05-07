@@ -88,6 +88,9 @@ bool executeProgram(const std::string& command) {
 
 int main() {
     fs::path workingDir{"/"};
+    // chdir changes the actual operating system working directory
+    // of the shell process so child programs inherit the same directory.
+    chdir(workingDir.c_str());
     std::string input;
     std::vector<std::string> history;
 
@@ -134,6 +137,7 @@ int main() {
                     }
 
                     workingDir = newPath;
+                    chdir(workingDir.c_str());
                     history.push_back(std::move(input));
                 }
                 catch (fs::filesystem_error &) {
