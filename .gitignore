@@ -108,3 +108,5 @@ fabric.properties
 *.exe
 *.out
 *.app
+
+.idea/advanced-shell.iml
