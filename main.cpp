@@ -3,7 +3,7 @@
 #include <vector>
 
 #include <unistd.h> // for fork(), exec(), and dup2()
-#include <wait.h>   // for waitpid()
+#include <sys/wait.h>   // for waitpid()
 #include <fcntl.h>  // for open()
 
 namespace fs = std::filesystem;
@@ -11,6 +11,7 @@ namespace fs = std::filesystem;
 int main() {
     fs::path workingDir{"/"};
     std::string input;
+    std::vector<std::string> history;
 
     std::cout << "Welcome to ElbeeShell\n\n";
 
@@ -34,8 +35,10 @@ int main() {
         if (command == "exit") {
             break;
         }
+
         else if (command == "workdir") {
             std::cout << "Working directory: " << workingDir.string() << std::endl;
+            history.push_back(std::move(input));
         }
         else if (command == "cd") {
             if (argument.empty()) {
@@ -53,6 +56,7 @@ int main() {
                     }
 
                     workingDir = newPath;
+                    history.push_back(std::move(input));
                 }
                 catch (fs::filesystem_error &) {
                     std::cout << "Path does not exist." << std::endl;
@@ -89,17 +93,28 @@ int main() {
                 for (const auto &f : files) {
                     std::cout << f.string() << std::endl;
                 }
+                history.push_back(std::move(input));
             }
             catch (fs::filesystem_error &) {
                 std::cout << "Error accessing directory." << std::endl;
             }
         }
+
+        // using reverse iterators!!
+        else if (command == "history") {
+            for (auto it = history.rbegin(); it != history.rend(); ++it) {
+                std::cout << *it << std::endl;
+            }
+        }
+
         else {
             std::cout << "Unknown command." << std::endl;
         }
 
         std::cout << std::endl;
     }
+
+
 
     return 0;
 }
